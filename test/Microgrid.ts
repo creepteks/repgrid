@@ -13,11 +13,16 @@ describe("MicrogridExchange", function () {
   async function deployMarket() {
     // Contracts are deployed using the first signer/account by default
     const [owner, otherAccount] = await ethers.getSigners();
-
+    console.time("deploy market grid");
     const gridFactory = await ethers.getContractFactory("MicrogridMarket");
     const microgrid = await gridFactory.deploy(owner.address);
 
-    return { microgrid, owner, otherAccount };
+    const houseFactoryFactory = await ethers.getContractFactory("HouseholdFactory");
+    const householdFactory = await houseFactoryFactory.deploy();
+
+    console.timeEnd("deploy market grid");
+
+    return { microgrid, owner, otherAccount, householdFactory };
   }
 
   describe("Deployment", function () {
@@ -27,15 +32,6 @@ describe("MicrogridExchange", function () {
       expect(await microgrid.owner()).to.equal(owner.address);
     });
 
-    // it("Should receive and store the funds to lock", async function () {
-    //   const { lock, lockedAmount } = await loadFixture(
-    //     deployQuark
-    //   );
-
-    //   expect(await ethers.provider.getBalance(lock.target)).to.equal(
-    //     lockedAmount
-    //   );
-    // });
 
     // it("Should fail if the unlockTime is not in the future", async function () {
     //   // We don't use the fixture here because we want a different deployment
@@ -45,6 +41,27 @@ describe("MicrogridExchange", function () {
     //     "Unlock time should be in the future"
     //   );
     // });
+  });
+
+  describe("HouseholdFactory tests", function (){
+    
+    it("Should correctly create the smarthome contract on blockchain", async function () {
+        const { householdFactory } = await loadFixture(deployMarket);
+        const tx = await householdFactory.createHousehold(1000)
+        await tx.wait();
+        
+        const households = await householdFactory.getDeployedHouseholds();
+        // first way of getting event data
+        const filter = householdFactory.filters.SmartHomeCreated;
+        const events = await householdFactory.queryFilter(filter, -1);
+        const event = events[0];
+        await expect(event.args[0].valueOf()).to.equal(households[0])
+
+        // second way of getting event data
+        await expect(tx).to.emit(householdFactory, "SmartHomeCreated").withArgs(households[0]);
+
+      });
+    
   });
 
   // describe("Withdrawals", function () {
