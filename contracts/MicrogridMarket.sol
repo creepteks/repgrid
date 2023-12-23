@@ -3,15 +3,17 @@ pragma solidity ^0.8.20;
 contract HouseholdFactory{
     address[] public deployedHouseholds;
     address public owner;
+    event SmartHomeCreated(address smarthomeAddress);
     
     constructor() public{
         owner = address(this);
     }
     
-    function createHousehold(uint capacity) public{
+    function createHousehold(uint capacity) public {
         SmartHome h = new SmartHome(capacity, msg.sender, owner);
         address newHousehold = address(h);
         deployedHouseholds.push(newHousehold);
+        emit SmartHomeCreated(newHousehold);
     }
     
     function getDeployedHouseholds() public view returns (address[] memory) {
