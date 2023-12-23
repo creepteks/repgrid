@@ -14,7 +14,7 @@ describe("MicrogridExchange", function () {
     // Contracts are deployed using the first signer/account by default
     const [owner, otherAccount] = await ethers.getSigners();
 
-    const gridFactory = await ethers.getContractFactory("Exchange");
+    const gridFactory = await ethers.getContractFactory("MicrogridMarket");
     const microgrid = await gridFactory.deploy(owner.address);
 
     return { microgrid, owner, otherAccount };
