@@ -17,12 +17,12 @@ describe("MicrogridExchange", function () {
     const gridFactory = await ethers.getContractFactory("MicrogridMarket");
     const microgrid = await gridFactory.deploy(owner.address);
 
-    const houseFactoryFactory = await ethers.getContractFactory("HouseholdFactory");
-    const householdFactory = await houseFactoryFactory.deploy();
+    const smartHomeFactory = await ethers.getContractFactory("SmartHomeFactory");
+    const smartHome = await smartHomeFactory.deploy();
 
     console.timeEnd("deploy market grid");
 
-    return { microgrid, owner, otherAccount, householdFactory };
+    return { microgrid, owner, otherAccount, smartHome };
   }
 
   describe("Deployment", function () {
@@ -43,22 +43,22 @@ describe("MicrogridExchange", function () {
     // });
   });
 
-  describe("HouseholdFactory tests", function (){
+  describe("smartHome tests", function (){
     
     it("Should correctly create the smarthome contract on blockchain", async function () {
-        const { householdFactory } = await loadFixture(deployMarket);
-        const tx = await householdFactory.createHousehold(1000)
+        const { smartHome } = await loadFixture(deployMarket);
+        const tx = await smartHome.createHousehold(1000)
         await tx.wait();
         
-        const households = await householdFactory.getDeployedHouseholds();
+        const households = await smartHome.getDeployedHouseholds();
         // first way of getting event data
-        const filter = householdFactory.filters.SmartHomeCreated;
-        const events = await householdFactory.queryFilter(filter, -1);
+        const filter = smartHome.filters.SmartHomeCreated;
+        const events = await smartHome.queryFilter(filter, -1);
         const event = events[0];
         await expect(event.args[0].valueOf()).to.equal(households[0])
 
         // second way of getting event data
-        await expect(tx).to.emit(householdFactory, "SmartHomeCreated").withArgs(households[0]);
+        await expect(tx).to.emit(smartHome, "SmartHomeCreated").withArgs(households[0]);
 
       });
     

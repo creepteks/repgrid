@@ -1,11 +1,11 @@
 pragma solidity ^0.8.20;
 
-contract HouseholdFactory{
+contract SmartHomeFactory{
     address[] public deployedHouseholds;
     address public owner;
     event SmartHomeCreated(address smarthomeAddress);
     
-    constructor() public{
+    constructor() {
         owner = address(this);
     }
     
@@ -55,7 +55,7 @@ contract SmartHome{
     SmartHome hh;
     
     
-    constructor(uint capacity, address creator, address watch_address) public payable{
+    constructor(uint capacity, address creator, address watch_address) payable{
         owner = creator;
         batteryCapacity = capacity;
         amountOfCharge = capacity;
@@ -65,8 +65,11 @@ contract SmartHome{
     
     function deposit() public payable {
     }
+    
+    receive() external payable {
+    }
 
-   fallback() external payable {}
+    fallback() external payable {}
 
     function setSmartMeterDetails(uint _demand, uint _supply, uint _excessEnergy) public {
         currentDemand = _demand;
@@ -231,20 +234,21 @@ contract MicrogridMarket {
     SmartHome hh;
     address public owner;
 
-    constructor(address _owner) public payable{
+    constructor(address _owner) payable{
         owner = _owner;
     }
     
     function deposit() public payable {
     }
 
+    receive() external payable {}
     fallback() external payable {}
 
-    function getBid(uint index) public returns(address, uint, uint, uint){
+    function getBid(uint index) public view returns(address, uint, uint, uint){
         return (Bids[index].owner, Bids[index].price, Bids[index].amount, Bids[index].date);
     }
 
-    function getAsk(uint index) public  returns(address, uint, uint, uint){
+    function getAsk(uint index) public view returns(address, uint, uint, uint){
         return (Asks[index].owner, Asks[index].price, Asks[index].amount, Asks[index].date);
     }
 
@@ -356,6 +360,8 @@ contract MicrogridMarket {
             
             return (matchBid(Bids.length-1,Asks.length-1)); 
         }
+
+        return false;
     }
 
     function removeBid(uint index) public {
