@@ -29,7 +29,7 @@ contract SmartHome{
     uint public amountOfCharge;
     uint public excessEnergy;
     
-    struct Bid{
+    struct Order{
         address origin;
         uint price;
         uint amount;
@@ -43,8 +43,8 @@ contract SmartHome{
         uint date;
     }
     
-    Bid[] public Bids;
-    Bid[] public Asks;
+    Order[] public Bids;
+    Order[] public Asks;
     BidSuccessful[] public SuccessfulBids;
     address public owner;
     address public contractAddress;
@@ -140,8 +140,8 @@ contract SmartHome{
         }
     }
     
-    function submitBid(uint price, uint amount, uint timestamp) public restricted returns (bool){
-        Bid memory newBid = Bid({
+    function submitBid(uint price, uint amount, uint timestamp) public restricted {
+        Order memory newBid = Order({
             origin: contractAddress,
             price: price,
             amount: amount,
@@ -150,12 +150,12 @@ contract SmartHome{
         
         Bids.push(newBid);
         ex = MicrogridMarket(payable(exchangeAddress));
-        return ex.placeBid(price, amount, timestamp);
+        ex.placeBid(price, amount, timestamp);
         
     }
     
-    function submitAsk(uint price, uint amount, uint timestamp) public restricted returns(bool) {
-        Bid memory newAsk = Bid({
+    function submitAsk(uint price, uint amount, uint timestamp) public restricted {
+        Order memory newAsk = Order({
             origin: contractAddress,
             price: price,
             amount: amount,
@@ -164,7 +164,7 @@ contract SmartHome{
         
         Asks.push(newAsk);
         ex = MicrogridMarket(payable(exchangeAddress));
-        return ex.placeAsk(price, amount, timestamp);
+        ex.placeAsk(price, amount, timestamp);
     }
 
     function buyEnergy(uint _amount, address payable _recipient, uint _price, uint _date ) public payable returns(bool successful){
@@ -215,22 +215,15 @@ contract SmartHome{
 
 contract MicrogridMarket {
 
-    struct Bid {
+    struct Order {
         address payable owner;
         uint price;
         uint amount;
         uint date;
     }
 
-    struct Ask {
-        address payable owner;
-        uint price;
-        uint amount;
-        uint date;
-    }
-
-    Bid[] public Bids;
-    Ask[] public Asks;
+    Order[] public Bids;
+    Order[] public Asks;
     SmartHome hh;
     address public owner;
 
@@ -252,17 +245,17 @@ contract MicrogridMarket {
         return (Asks[index].owner, Asks[index].price, Asks[index].amount, Asks[index].date);
     }
 
-
-    function placeBid(uint _price, uint _amount, uint timestamp) public returns (bool) {
-        Bid memory b;
+    function placeBid(uint _price, uint _amount, uint timestamp) public {
+        Order memory b;
         b.owner = payable(msg.sender);
         b.price = _price;
         b.amount = _amount;
         b.date = timestamp;
 
+        // find the 'b' bid place in the array and resize the array accordingly
         for(uint i = 0; i < Bids.length; i++) {
             if(Bids[i].price > _price) {
-                Bid[] memory tempBids = new Bid[](Bids.length - i);
+                Order[] memory tempBids = new Order[](Bids.length - i);
                 for(uint j = i; j < Bids.length; j++) {
                     tempBids[j-i] = Bids[j];
                 }
@@ -275,30 +268,30 @@ contract MicrogridMarket {
                 if(Asks.length>0){
                     matchBid(Bids.length-1 ,Asks.length-1 );
                 }
-                return true;
+
+                // the placement and sorting is done, so
+                return;
             }
         }
 
+        // the bid was deemed the least prior bid, so add it to the end
         Bids.push(b);
         if(Asks.length>0){
-            
             matchBid(Bids.length-1 ,Asks.length-1 );
-            
         }
-        return true;
     }
 
-    function placeAsk(uint _price, uint _amount, uint timestamp) public returns (bool) {
-        Ask memory a;
+    function placeAsk(uint _price, uint _amount, uint timestamp) public {
+        Order memory a;
         a.owner = payable(msg.sender);
         a.price = _price;
         a.amount = _amount;
         a.date = timestamp;
 
-
+        // iterate on the asks array to sort the asks
         for (uint i = 0; i < Asks.length; i ++) {
             if(Asks[i].price < _price) {
-                Ask[] memory tempAsks = new Ask[](Asks.length - i);
+                Order[] memory tempAsks = new Order[](Asks.length - i);
                 for (uint j = i; j < Asks.length; j++) {
                     tempAsks[j-i] = Asks[j];
                 }
@@ -311,14 +304,17 @@ contract MicrogridMarket {
                 if (Bids.length>0){
                     matchBid(Bids.length-1,Asks.length-1 );
                 }
-                return true;
+                // the ask is placed and the array is resized;
+                // we can exit the function now
+                return;
             }
         }
+
+        // the ask's price was bigger than all previous asks. so push it at the end
         Asks.push(a);
         if(Bids.length > 0) {
             matchBid(Bids.length-1,Asks.length-1 );
         }
-        return true;
     }
     
     function matchBid(uint bid_index, uint ask_index) public returns (bool) {
@@ -328,7 +324,6 @@ contract MicrogridMarket {
 
         hh = SmartHome(Bids[bid_index].owner);
         
-        //uint price = (Asks[ask_index].price + Bids[bid_index].price) / 2;
         uint price = Bids[bid_index].price;
 
         if(int(Bids[bid_index].amount - Asks[ask_index].amount) >= 0){
