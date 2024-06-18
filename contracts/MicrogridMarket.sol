@@ -1,5 +1,10 @@
 pragma solidity ^0.8.20;
 
+library Utils {
+    uint public constant MIN_TRUST_SCORE = 1;
+    uint public constant MAX_TRUST_SCORE = 5;
+}
+
 contract SmartHomeFactory{
     address[] public deployedHouseholds;
     address public owner;
@@ -22,13 +27,6 @@ contract SmartHomeFactory{
 }
 
 contract SmartHome{
-    
-    uint public currentDemand;
-    uint public currentSupply;
-    uint public batteryCapacity;
-    uint public amountOfCharge;
-    uint public excessEnergy;
-    
     struct Order{
         address origin;
         uint price;
@@ -36,16 +34,24 @@ contract SmartHome{
         uint date;
     }
 
-    struct BidSuccessful{
+    struct SuccessfulBid{
         address recipient;
         uint price;
         uint amount;
         uint date;
     }
-    
-    Order[] public Bids;
-    Order[] public Asks;
-    BidSuccessful[] public SuccessfulBids;
+
+    uint public currentDemand;
+    uint public currentSupply;
+    uint public batteryCapacity;
+    uint public amountOfCharge;
+    uint public excessEnergy;
+    uint public trustScore;
+    uint public totalInteractions;
+
+    Order[] public buyOrders;
+    Order[] public sellOrders;
+    SuccessfulBid[] public SuccessfulBids;
     address public owner;
     address public contractAddress;
     address public parent;
@@ -90,18 +96,18 @@ contract SmartHome{
 
     
     function getBid(uint index) public view returns(address, uint, uint, uint){
-        return (Bids[index].origin,
-                Bids[index].price,
-                Bids[index].amount,
-                Bids[index].date
+        return (buyOrders[index].origin,
+                buyOrders[index].price,
+                buyOrders[index].amount,
+                buyOrders[index].date
         );
     }
 
     function getAsk(uint index) public view returns(address, uint, uint, uint){
-        return (Asks[index].origin,
-                Asks[index].price,
-                Asks[index].amount,
-                Asks[index].date
+        return (sellOrders[index].origin,
+                sellOrders[index].price,
+                sellOrders[index].amount,
+                sellOrders[index].date
         );
     }
 
@@ -121,7 +127,7 @@ contract SmartHome{
         exchangeAddress = exchange;
     }
     
-    function charge(uint amount) public restricted{
+    function charge(uint amount) public onlySmartHomeOwner{
         if(amountOfCharge + amount >= batteryCapacity) {
             amountOfCharge = batteryCapacity;
         }
@@ -140,7 +146,7 @@ contract SmartHome{
         }
     }
     
-    function submitBid(uint price, uint amount, uint timestamp) public restricted {
+    function submitBid(uint price, uint amount, uint timestamp) public onlySmartHomeOwner {
         Order memory newBid = Order({
             origin: contractAddress,
             price: price,
@@ -148,13 +154,13 @@ contract SmartHome{
             date: timestamp
         });
         
-        Bids.push(newBid);
+        buyOrders.push(newBid);
         ex = MicrogridMarket(payable(exchangeAddress));
-        ex.placeBid(price, amount, timestamp);
+        ex.placeBuyOrder(price, amount, timestamp);
         
     }
     
-    function submitAsk(uint price, uint amount, uint timestamp) public restricted {
+    function submitAsk(uint price, uint amount, uint timestamp) public onlySmartHomeOwner {
         Order memory newAsk = Order({
             origin: contractAddress,
             price: price,
@@ -162,13 +168,13 @@ contract SmartHome{
             date: timestamp
         });
         
-        Asks.push(newAsk);
+        sellOrders.push(newAsk);
         ex = MicrogridMarket(payable(exchangeAddress));
-        ex.placeAsk(price, amount, timestamp);
+        ex.placeSellOrder(price, amount, timestamp);
     }
 
     function buyEnergy(uint _amount, address payable _recipient, uint _price, uint _date ) public payable returns(bool successful){
-        BidSuccessful memory newBid = BidSuccessful({
+        SuccessfulBid memory newBid = SuccessfulBid({
             recipient: _recipient,
             price: _price,
             amount: _amount,
@@ -181,8 +187,8 @@ contract SmartHome{
         hh.discharge(_amount);
 
 
-        _recipient.transfer( (_amount/1000)*_price);
-       
+        (bool sent, bytes memory data) = _recipient.call{value: _amount * _price}("");
+        require(sent, "Failed to send Ether");
         SuccessfulBids.push(newBid);
         
         return true;
@@ -199,15 +205,31 @@ contract SmartHome{
     }
 
     function getBidsCount() public view returns(uint) {
-        return Bids.length;
+        return buyOrders.length;
     }
     
     function getAsksCount() public view returns(uint) {
-        return Asks.length;
+        return sellOrders.length;
     }
 
-    modifier restricted() {
+    function addTrustScore(uint score) public onlyPowerGrid(){
+        require(score >= Utils.MIN_TRUST_SCORE && score <= Utils.MAX_TRUST_SCORE, 
+            "score number should use Likert scaling of [1, 5]" );
+
+        trustScore += score;
+    }
+
+    function addInteraction() public onlyPowerGrid(){
+        totalInteractions++;
+    }
+
+    modifier onlySmartHomeOwner() {
         require(msg.sender == owner);
+        _;
+    }
+
+    modifier onlyPowerGrid() {
+        require(msg.sender == exchangeAddress);
         _;
     }
     
@@ -222,9 +244,9 @@ contract MicrogridMarket {
         uint date;
     }
 
-    Order[] public Bids;
-    Order[] public Asks;
-    SmartHome hh;
+    Order[] public buyOrders;
+    Order[] public sellOrders;
+    mapping (address => address[]) unratedInteractions;
     address public owner;
 
     constructor(address _owner) payable{
@@ -238,35 +260,35 @@ contract MicrogridMarket {
     fallback() external payable {}
 
     function getBid(uint index) public view returns(address, uint, uint, uint){
-        return (Bids[index].owner, Bids[index].price, Bids[index].amount, Bids[index].date);
+        return (buyOrders[index].owner, buyOrders[index].price, buyOrders[index].amount, buyOrders[index].date);
     }
 
     function getAsk(uint index) public view returns(address, uint, uint, uint){
-        return (Asks[index].owner, Asks[index].price, Asks[index].amount, Asks[index].date);
+        return (sellOrders[index].owner, sellOrders[index].price, sellOrders[index].amount, sellOrders[index].date);
     }
 
-    function placeBid(uint _price, uint _amount, uint timestamp) public {
+    function placeBuyOrder(uint _price, uint _amount, uint timestamp) public {
         Order memory b;
         b.owner = payable(msg.sender);
         b.price = _price;
         b.amount = _amount;
         b.date = timestamp;
 
-        // find the 'b' bid place in the array and resize the array accordingly
-        for(uint i = 0; i < Bids.length; i++) {
-            if(Bids[i].price > _price) {
-                Order[] memory tempBids = new Order[](Bids.length - i);
-                for(uint j = i; j < Bids.length; j++) {
-                    tempBids[j-i] = Bids[j];
+        // find the bid place in the array and resize the array accordingly
+        for(uint i = 0; i < buyOrders.length; i++) {
+            if(buyOrders[i].price > _price) {
+                Order[] memory tempBids = new Order[](buyOrders.length - i);
+                for(uint j = i; j < buyOrders.length; j++) {
+                    tempBids[j-i] = buyOrders[j];
                 }
-                Bids[i] = b;
-                Bids.push();
+                buyOrders[i] = b;
+                buyOrders.push();
                 for(uint k = 0; k < tempBids.length; k++) {
-                     Bids[i+k+1] = tempBids[k];
+                     buyOrders[i+k+1] = tempBids[k];
                 }
                 
-                if(Asks.length>0){
-                    matchBid(Bids.length-1 ,Asks.length-1 );
+                if(sellOrders.length>0){
+                    matchOrders(buyOrders.length-1 ,sellOrders.length-1 );
                 }
 
                 // the placement and sorting is done, so
@@ -275,13 +297,13 @@ contract MicrogridMarket {
         }
 
         // the bid was deemed the least prior bid, so add it to the end
-        Bids.push(b);
-        if(Asks.length>0){
-            matchBid(Bids.length-1 ,Asks.length-1 );
+        buyOrders.push(b);
+        if(sellOrders.length>0){
+            matchOrders(buyOrders.length-1 ,sellOrders.length-1 );
         }
     }
 
-    function placeAsk(uint _price, uint _amount, uint timestamp) public {
+    function placeSellOrder(uint _price, uint _amount, uint timestamp) public {
         Order memory a;
         a.owner = payable(msg.sender);
         a.price = _price;
@@ -289,20 +311,20 @@ contract MicrogridMarket {
         a.date = timestamp;
 
         // iterate on the asks array to sort the asks
-        for (uint i = 0; i < Asks.length; i ++) {
-            if(Asks[i].price < _price) {
-                Order[] memory tempAsks = new Order[](Asks.length - i);
-                for (uint j = i; j < Asks.length; j++) {
-                    tempAsks[j-i] = Asks[j];
+        for (uint i = 0; i < sellOrders.length; i ++) {
+            if(sellOrders[i].price < _price) {
+                Order[] memory tempAsks = new Order[](sellOrders.length - i);
+                for (uint j = i; j < sellOrders.length; j++) {
+                    tempAsks[j-i] = sellOrders[j];
                 }
-                Asks[i] = a;
-                Asks.push();
+                sellOrders[i] = a;
+                sellOrders.push();
                 for (uint k = 0; k < tempAsks.length; k++) {
-                    Asks[i+k+1] = tempAsks[k];
+                    sellOrders[i+k+1] = tempAsks[k];
                 }
               
-                if (Bids.length>0){
-                    matchBid(Bids.length-1,Asks.length-1 );
+                if (buyOrders.length>0){
+                    matchOrders(buyOrders.length-1,sellOrders.length-1 );
                 }
                 // the ask is placed and the array is resized;
                 // we can exit the function now
@@ -311,77 +333,105 @@ contract MicrogridMarket {
         }
 
         // the ask's price was bigger than all previous asks. so push it at the end
-        Asks.push(a);
-        if(Bids.length > 0) {
-            matchBid(Bids.length-1,Asks.length-1 );
+        sellOrders.push(a);
+        if(buyOrders.length > 0) {
+            matchOrders(buyOrders.length-1,sellOrders.length-1 );
         }
     }
     
-    function matchBid(uint bid_index, uint ask_index) public returns (bool) {
-        if (Bids.length == 0 || Asks.length == 0 || Bids[bid_index].price < Asks[ask_index].price) {
+    function matchOrders(uint bid_index, uint ask_index) public returns (bool) {
+        if (buyOrders.length == 0 || sellOrders.length == 0 || buyOrders[bid_index].price < sellOrders[ask_index].price) {
             return true;
         }
 
-        hh = SmartHome(Bids[bid_index].owner);
-        
-        uint price = Bids[bid_index].price;
+        SmartHome buyer = SmartHome(buyOrders[bid_index].owner);
+        SmartHome seller = SmartHome(sellOrders[ask_index].owner);
 
-        if(int(Bids[bid_index].amount - Asks[ask_index].amount) >= 0){
-            uint remainder = Bids[bid_index].amount - Asks[ask_index].amount;
-            uint calcAmount = Bids[bid_index].amount - remainder;
+        uint price = buyOrders[bid_index].price;
+
+        if(int(buyOrders[bid_index].amount - sellOrders[ask_index].amount) >= 0){
+            uint remainder = buyOrders[bid_index].amount - sellOrders[ask_index].amount;
+            uint calcAmount = buyOrders[bid_index].amount - remainder;
             
-            hh.buyEnergy(calcAmount, Asks[ask_index].owner, price, Bids[bid_index].date);
+            buyer.buyEnergy(calcAmount, payable(seller), price, buyOrders[bid_index].date);
 
-            Bids[bid_index].amount = remainder;
+            buyOrders[bid_index].amount = remainder;
             if(remainder==0){
                 removeBid(bid_index);
+                buyer.addInteraction();
             }
             removeAsk(ask_index);
+            if(buyOrders.length == 0 || sellOrders.length == 0)
+                return false;
             
-            return (matchBid(Bids.length-1,Asks.length-1));
+            return (matchOrders(buyOrders.length-1,sellOrders.length-1));
         }
         
-        if(int(Bids[bid_index].amount - Asks[ask_index].amount) < 0){
-            uint remainder = Asks[ask_index].amount - Bids[bid_index].amount;
-            uint calcAmount = Asks[ask_index].amount - remainder;
+        if(int(buyOrders[bid_index].amount - sellOrders[ask_index].amount) < 0){
+            uint remainder = sellOrders[ask_index].amount - buyOrders[bid_index].amount;
+            uint calcAmount = sellOrders[ask_index].amount - remainder;
             
-            hh.buyEnergy(calcAmount, Asks[ask_index].owner, price, Bids[bid_index].date);
+            buyer.buyEnergy(calcAmount, sellOrders[ask_index].owner, price, buyOrders[bid_index].date);
 
-            Asks[ask_index].amount = remainder;
+            sellOrders[ask_index].amount = remainder;
             if(remainder == 0){
                 removeAsk(ask_index);
+                seller.addInteraction();
             }
             removeBid(bid_index);
             
-            return (matchBid(Bids.length-1,Asks.length-1)); 
+            if(buyOrders.length == 0 || sellOrders.length == 0) 
+                return false;
+            
+            return (matchOrders(buyOrders.length-1,sellOrders.length-1)); 
         }
 
         return false;
     }
 
     function removeBid(uint index) public {
-        if (index >= Bids.length) return;
+        if (index >= buyOrders.length) return;
         
-        for (uint i = index; i<Bids.length-1; i++){
-            Bids[i] = Bids[i+1];
+        for (uint i = index; i<buyOrders.length-1; i++){
+            buyOrders[i] = buyOrders[i+1];
         }
-        Bids.pop();
+        buyOrders.pop();
     }
 
     function removeAsk(uint index) public {
-        if (index >= Asks.length) return;
+        if (index >= sellOrders.length) return;
         
-        for (uint i = index; i<Asks.length-1; i++){
-            Asks[i] = Asks[i+1];
+        for (uint i = index; i<sellOrders.length-1; i++){
+            sellOrders[i] = sellOrders[i+1];
         }
-        Asks.pop();
+        sellOrders.pop();
     }
 
     function getBidsCount() public view returns(uint) {
-        return Bids.length;
+        return buyOrders.length;
     }
     
     function getAsksCount() public view returns(uint) {
-        return Asks.length;
+        return sellOrders.length;
+    }
+
+    function rateInteraction(address payable receiver, uint score) public  {
+        address[] memory interactionsWithSender = unratedInteractions[msg.sender];
+        require(interactionsWithSender.length != 0, "There are no interaction from sender's address");
+        uint index;
+        bool foundInteraction = false;
+        for (uint i = 0; i < interactionsWithSender.length; i++) {
+            if (interactionsWithSender[i] == receiver) {
+                index = i;
+                foundInteraction = true;
+                break;
+            }
+        }   
+
+        if (foundInteraction) {
+            SmartHome rec = SmartHome(receiver);
+            rec.addTrustScore(score);
+            delete interactionsWithSender[index];
+        }
     }
 }
