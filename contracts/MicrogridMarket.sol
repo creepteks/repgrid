@@ -187,7 +187,7 @@ contract SmartHome{
         hh.discharge(_amount);
 
 
-        (bool sent, bytes memory data) = _recipient.call{value: _amount * _price}("");
+        (bool sent, ) = _recipient.call{value: _amount * _price}("");
         require(sent, "Failed to send Ether");
         SuccessfulBids.push(newBid);
         
