@@ -47,7 +47,6 @@ contract SmartHome{
     uint public amountOfCharge;
     uint public excessEnergy;
     uint public trustScore;
-    uint public totalInteractions;
 
     Order[] public buyOrders;
     Order[] public sellOrders;
@@ -219,11 +218,8 @@ contract SmartHome{
         trustScore += score;
     }
 
-    function addInteraction(address sender, address receiver) public {
-
-        totalInteractions++;
-        MicrogridMarket m = MicrogridMarket(exchangeAddress);
-        m.recordInteraction(sender, receiver);
+    function getOwner() public view returns(address) {
+        return owner;
     }
 
     modifier onlySmartHomeOwner() {
@@ -355,8 +351,8 @@ contract MicrogridMarket {
             buyOrders[bid_index].amount = remainder;
             if(remainder==0){
                 removeBid(bid_index);
-                buyer.addInteraction(address(buyer), address(seller));
-                seller.addInteraction(address(seller), address(buyer));
+                recordInteraction(buyer.getOwner(), seller.getOwner());
+                recordInteraction(seller.getOwner(), buyer.getOwner());
             }
             removeAsk(ask_index);
             if(buyOrders.length == 0 || sellOrders.length == 0)
@@ -374,8 +370,8 @@ contract MicrogridMarket {
             sellOrders[ask_index].amount = remainder;
             if(remainder == 0){
                 removeAsk(ask_index);
-                buyer.addInteraction(address(buyer), address(seller));
-                seller.addInteraction(address(seller), address(buyer));
+                recordInteraction(buyer.getOwner(), seller.getOwner());
+                recordInteraction(seller.getOwner(), buyer.getOwner());
             }
             removeBid(bid_index);
             
