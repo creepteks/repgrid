@@ -55,7 +55,7 @@ contract SmartHome{
     address public owner;
     address public contractAddress;
     address public parent;
-    address public exchangeAddress;
+    address payable public exchangeAddress;
     uint public balanceContract;
     MicrogridMarket ex;
     SmartHome hh;
@@ -123,7 +123,7 @@ contract SmartHome{
         return SuccessfulBids.length;
     }
 
-    function setExchange(address exchange) public {
+    function setExchange(address payable exchange) public {
         exchangeAddress = exchange;
     }
     
@@ -212,27 +212,24 @@ contract SmartHome{
         return sellOrders.length;
     }
 
-    function addTrustScore(uint score) public onlyPowerGrid(){
+    function addTrustScore(uint score) public {
         require(score >= Utils.MIN_TRUST_SCORE && score <= Utils.MAX_TRUST_SCORE, 
             "score number should use Likert scaling of [1, 5]" );
 
         trustScore += score;
     }
 
-    function addInteraction() public onlyPowerGrid(){
+    function addInteraction(address sender, address receiver) public {
+
         totalInteractions++;
+        MicrogridMarket m = MicrogridMarket(exchangeAddress);
+        m.recordInteraction(sender, receiver);
     }
 
     modifier onlySmartHomeOwner() {
         require(msg.sender == owner);
         _;
     }
-
-    modifier onlyPowerGrid() {
-        require(msg.sender == exchangeAddress);
-        _;
-    }
-    
 }
 
 contract MicrogridMarket {
@@ -358,7 +355,8 @@ contract MicrogridMarket {
             buyOrders[bid_index].amount = remainder;
             if(remainder==0){
                 removeBid(bid_index);
-                buyer.addInteraction();
+                buyer.addInteraction(address(buyer), address(seller));
+                seller.addInteraction(address(seller), address(buyer));
             }
             removeAsk(ask_index);
             if(buyOrders.length == 0 || sellOrders.length == 0)
@@ -376,7 +374,8 @@ contract MicrogridMarket {
             sellOrders[ask_index].amount = remainder;
             if(remainder == 0){
                 removeAsk(ask_index);
-                seller.addInteraction();
+                buyer.addInteraction(address(buyer), address(seller));
+                seller.addInteraction(address(seller), address(buyer));
             }
             removeBid(bid_index);
             
@@ -415,23 +414,29 @@ contract MicrogridMarket {
         return sellOrders.length;
     }
 
+    function recordInteraction(address sender, address receiver) public {
+        unratedInteractions[sender].push(receiver);
+    }
+
     function rateInteraction(address payable receiver, uint score) public  {
         address[] memory interactionsWithSender = unratedInteractions[msg.sender];
-        require(interactionsWithSender.length != 0, "There are no interaction from sender's address");
+        
+        require(interactionsWithSender.length > 0, "There are no interaction for sender's address");
+        
         uint index;
         bool foundInteraction = false;
         for (uint i = 0; i < interactionsWithSender.length; i++) {
-            if (interactionsWithSender[i] == receiver) {
+            if (unratedInteractions[msg.sender][i] == receiver) {
                 index = i;
                 foundInteraction = true;
                 break;
             }
         }   
 
-        if (foundInteraction) {
-            SmartHome rec = SmartHome(receiver);
-            rec.addTrustScore(score);
-            delete interactionsWithSender[index];
-        }
+        require(foundInteraction, "no interaction is done with receiver");
+
+        SmartHome rec = SmartHome(receiver);
+        rec.addTrustScore(score);
+        delete unratedInteractions[msg.sender][index];
     }
 }
