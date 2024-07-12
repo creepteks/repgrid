@@ -87,6 +87,38 @@ describe("MicrogridExchange", function () {
       expect(await SmartHome1.owner()).to.equal(account1.address);
     });
 
+    it("Should correctly set an ask order", async function () {
+
+      const { microgrid } = await loadFixture(deployMarket);
+      const { SmartHome1, account1} = await loadFixture(deploy1SmartHome);
+      
+      expect(await SmartHome1.owner()).to.equal(account1.address);
+
+      await SmartHome1.setExchange(microgrid.getAddress());
+      await SmartHome1.connect(account1).submitAsk(10, 1, Date.now());
+      const expectedOriginAddress = await SmartHome1.getAddress();
+
+      const [origin] = await SmartHome1.getAsk(0); // Assuming index 0 is used for testing
+
+      expect(origin).to.equal(expectedOriginAddress);
+    });
+
+    it("Should correctly set a buy order", async function () {
+
+      const { microgrid } = await loadFixture(deployMarket);
+      const { SmartHome1, account1} = await loadFixture(deploy1SmartHome);
+      
+      expect(await SmartHome1.owner()).to.equal(account1.address);
+
+      await SmartHome1.setExchange(microgrid.getAddress());
+      await SmartHome1.connect(account1).submitBid(10, 1, Date.now());
+      const expectedOriginAddress = await SmartHome1.getAddress();
+
+      const [origin] = await SmartHome1.getBid(0); // Assuming index 0 is used for testing
+
+      expect(origin).to.equal(expectedOriginAddress);
+    });
+
     it("Should correctly match the buy and sell orders", async function () {
 
       const { microgrid } = await loadFixture(deployMarket);
@@ -94,9 +126,13 @@ describe("MicrogridExchange", function () {
       
       expect(await SmartHome1.owner()).to.equal(account1.address);
       expect(await SmartHome2.owner()).to.equal(account2.address);
+      const [,,,, previousCharge1] = await SmartHome1.getSmartMeterDetails();
+      const [,,,, previousCharge2] = await SmartHome2.getSmartMeterDetails();
 
       await SmartHome1.setExchange(microgrid.getAddress());
       await SmartHome2.setExchange(microgrid.getAddress());
+
+      await SmartHome1.connect(account1).charge(1);
 
       await account2.sendTransaction({
         to: SmartHome2.getAddress(),
@@ -105,8 +141,12 @@ describe("MicrogridExchange", function () {
       
       await SmartHome1.connect(account1).submitAsk(10, 1, Date.now());
       await SmartHome2.connect(account2).submitBid(11, 1, Date.now())
+      const [,,,,charge1] = await SmartHome1.getSmartMeterDetails();
+      const [,,,,charge2] = await SmartHome2.getSmartMeterDetails();
 
       expect(await ethers.provider.getBalance(SmartHome1.getAddress())).to.equal(11)
+      expect(charge1 - previousCharge1).to.be.equal(-1)
+      expect(charge2 - previousCharge2).to.be.equal(1)
     });
 
     it("Should prevent sending trust score before interaction", async () => {
