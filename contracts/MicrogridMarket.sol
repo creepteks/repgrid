@@ -239,7 +239,8 @@ contract MicrogridMarket {
 
     Order[] public buyOrders;
     Order[] public sellOrders;
-    mapping (address => address[]) unratedInteractions;
+    mapping (address => mapping(address => bool)) unratedInteractions;
+    mapping (address => uint) trustScores;
     address public owner;
 
     constructor(address _owner) payable{
@@ -411,28 +412,21 @@ contract MicrogridMarket {
     }
 
     function recordInteraction(address sender, address receiver) public {
-        unratedInteractions[sender].push(receiver);
+        unratedInteractions[sender][receiver] = true;
+    }
+
+    function getUnratedInteractions(address interactionStarter, address receiver) public view returns (bool) {
+        return unratedInteractions[interactionStarter][receiver];
     }
 
     function rateInteraction(address payable receiver, uint score) public  {
-        address[] memory interactionsWithSender = unratedInteractions[msg.sender];
         
-        require(interactionsWithSender.length > 0, "There are no interaction for sender's address");
+        require(unratedInteractions[msg.sender][receiver], "There are no interaction for sender's address");
+
+        // the interaction was found, so gave them the right vote
+        trustScores[receiver] += score;
         
-        uint index;
-        bool foundInteraction = false;
-        for (uint i = 0; i < interactionsWithSender.length; i++) {
-            if (unratedInteractions[msg.sender][i] == receiver) {
-                index = i;
-                foundInteraction = true;
-                break;
-            }
-        }   
-
-        require(foundInteraction, "no interaction is done with receiver");
-
-        SmartHome rec = SmartHome(receiver);
-        rec.addTrustScore(score);
-        delete unratedInteractions[msg.sender][index];
+        // after adding the trust vote score, prevent double voting
+        unratedInteractions[msg.sender][receiver] = false;
     }
 }
