@@ -163,6 +163,36 @@ describe("MicrogridExchange", function () {
       await expect(microgrid.connect(account2).rateInteraction(account1, 5)).to.be.reverted;
     })
 
+    it("Should record unrated interaction between 2 parties", async () => {
+      const { microgrid } = await loadFixture(deployMarket);
+      const { SmartHome1, SmartHome2, account1, account2 } = await loadFixture(deploy2SmartHomes);
+      const [, , , , account4] = await ethers.getSigners();
+      
+      expect(await SmartHome1.owner()).to.equal(account1.address);
+      expect(await SmartHome2.owner()).to.equal(account2.address);
+
+      await SmartHome1.setExchange(microgrid.getAddress());
+      await SmartHome2.setExchange(microgrid.getAddress());
+
+      await account2.sendTransaction({
+        to: SmartHome2.getAddress(),
+        value: ethers.parseEther("0.5"),
+      });
+      
+      await SmartHome1.connect(account1).submitAsk(10, 1, Date.now());
+      await SmartHome2.connect(account2).submitBid(11, 1, Date.now());
+
+      expect(await ethers.provider.getBalance(SmartHome1.getAddress())).to.equal(11)
+
+      const found = await microgrid.connect(account1).getUnratedInteractions(account1.getAddress(), account2.getAddress()); // Assuming index 0 is used for testing
+
+      console.log(`found interaction between 1 & 2: ${found}`)
+      await expect(found).to.be.true;
+      const notFound = await microgrid.connect(account1).getUnratedInteractions(account1.getAddress(), account4.getAddress());
+      await expect(notFound).to.not.be.true;
+      console.log(`found interaction between 1 & 4: ${notFound}`)
+    });
+
     it("Should should submit trust score after interaction", async () => {
       const { microgrid } = await loadFixture(deployMarket);
       const { SmartHome1, SmartHome2, account1, account2 } = await loadFixture(deploy2SmartHomes);
@@ -210,6 +240,7 @@ describe("MicrogridExchange", function () {
       await expect(microgrid.connect(account1).rateInteraction(account2, 5)).to.not.be.reverted;
       await expect(microgrid.connect(account2).rateInteraction(account1, 5)).to.not.be.reverted;
       
+      // both parties have voted their trust score, now a second try should fail
       await expect(microgrid.connect(account1).rateInteraction(account2, 5)).to.be.reverted;
 
     })
